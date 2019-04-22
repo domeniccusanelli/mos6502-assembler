@@ -586,7 +586,7 @@ def convert_operand(operand, mode):
 
 #assert len(sys.argv) > 1, "Usage: assembler.py \"assembly file\" [\"output file\"]"
 
-'''
+
 asm_filename = sys.argv[1]
 
 if len(sys.argv) > 2:
@@ -595,9 +595,6 @@ else:
     hex_filename = asm_filename.split(".")[0]
 
 hex_filename += ".hex"
-'''
-asm_filename = "test.asm"
-hex_filename = "test.hex"
 
 label_dict = first_pass(asm_filename)
 second_pass(asm_filename, hex_filename, label_dict)
