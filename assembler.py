@@ -1,28 +1,9 @@
+import os
 import sys
 import re
 import enum
 
-byte_pattern = r"[a-fA-F\d]{2}"
-
-comment_regex = re.compile(";.*")
-label_regex = re.compile(r"^((?![;$#=()]).)*$")
-operand_regex = re.compile(r"^(#?\$" + byte_pattern + r"|\$" + byte_pattern + byte_pattern + ")$")
-
-# ACC_regex = re.compile()                                              # unused
-IMM_regex = re.compile(r"^#\$" + byte_pattern + "$")                    # #$AA
-ABS_regex = re.compile(r"^\$" + byte_pattern + byte_pattern + "$")      # $AAAA
-ZPG_regex = re.compile(r"^\$" + byte_pattern + "$")                     # $AA
-ZPX_regex = re.compile(r"^\$" + byte_pattern + ",[xX]$")                # $AA,X
-ZPY_regex = re.compile(r"^\$" + byte_pattern + ",[yY]$")                # $AA,Y
-AIX_regex = re.compile(r"^\$" + byte_pattern + byte_pattern + ",[xX]$") # $AAAA,X
-AIY_regex = re.compile(r"^\$" + byte_pattern + byte_pattern + ",[yY]$") # $AAAA,Y
-# IMP_regex = re.compile()                                              # unused
-# REL_regex = re.compile(r"^\$" + byte_pattern + "$")                   # same as Zero Page
-IIX_regex = re.compile(r"^\(\$" + byte_pattern + r",[xX]\)$")           # ($AA,X)
-IIY_regex = re.compile(r"^\(\$" + byte_pattern + r"\),[yY]$")           # ($AA),Y
-IND_regex = re.compile(r"^\(\$" + byte_pattern + byte_pattern + r"\)$") # ($AAAA)
-
-mnemonic_regex = re.compile("\
+mnemonic_pattern = "\
 (ADC|\
 AND|\
 ASL|\
@@ -79,7 +60,38 @@ TSX|\
 TXA|\
 TXS|\
 TYA)\
-")
+"
+
+byte_pattern = r"[a-fA-F\d]{2}"
+
+comment_pattern = ";.*"
+label_pattern = r"((?:(?=[^\s])(?<![^\s]))((?!([;$#=()]))[^\s])+(?:(?<=[^\s])(?![^\s])))"
+operand_pattern = r"(#?\${0}|\${0}({0})?(,[xXyY])?|\(\${0}((({0}|,[xX])\))|\),[yY]))".format(byte_pattern)
+address_pattern = r"(#?\${0}|\${0}{0})".format(byte_pattern)
+
+blank_line = r"^\s*$"
+mnemonic_line = r"^\s*" + mnemonic_pattern + r"\s*$"
+mnemonic_operand_line = r"^\s*" + mnemonic_pattern + r"\s+" + operand_pattern + r"\s*$"
+mnemonic_label_line = r"^\s*" + mnemonic_pattern + r"\s+" + label_pattern + r"\s*$"
+label_line = r"^\s*" + label_pattern + r"\s*$"
+label_mnemonic_line = r"^\s*" + label_pattern + r"\s+" + mnemonic_pattern + r"\s*$"
+label_mnemonic_operand_line = r"^\s*" + label_pattern + r"\s+" + mnemonic_pattern + r"\s+" + operand_pattern + r"\s*$"
+label_mnemonic_label_line = r"^\s*" + label_pattern + r"\s+" + mnemonic_pattern + r"\s+" + label_pattern + r"\s*$"
+label_assignment_line = r"^\s*" + label_pattern + r"\s*" + "=" + r"\s*" + address_pattern + r"\s*$"
+
+# ACC_pattern                                              # unused
+IMM_pattern = r"^#\${0}$".format(byte_pattern)             # #$AA
+ABS_pattern = r"^\${0}{0}$".format(byte_pattern)           # $AAAA
+ZPG_pattern = r"^\${0}$".format(byte_pattern)              # $AA
+ZPX_pattern = r"^\${0},[xX]$".format(byte_pattern)         # $AA,X
+ZPY_pattern = r"^\${0},[yY]$".format(byte_pattern)         # $AA,Y
+AIX_pattern = r"^\${0}{0},[xX]$".format(byte_pattern)      # $AAAA,X
+AIY_pattern = r"^\${0}{0},[yY]$".format(byte_pattern)      # $AAAA,Y
+# IMP_pattern                                              # unused
+# REL_pattern                                              # same as Zero Page
+IIX_pattern = r"^\(\${0},[xX]\)$".format(byte_pattern)     # ($AA,X)
+IIY_pattern = r"^\(\${0}\),[yY]$".format(byte_pattern)     # ($AA),Y
+IND_pattern = r"^\(\${0}{0}\)$".format(byte_pattern)       # ($AAAA)
 
 class Mode(enum.Enum):
     ACC = 1
@@ -113,39 +125,39 @@ mode_length = {
 }
 
 static_modes = {
-    "BCC": Mode.REL
-    "BCS": Mode.REL
-    "BEQ": Mode.REL
-    "BMI": Mode.REL
-    "BNE": Mode.REL
-    "BPL": Mode.REL
-    "BRK": Mode.IMP
-    "BVC": Mode.REL
-    "BVS": Mode.REL
-    "CLC": Mode.IMP
-    "CLD": Mode.IMP
-    "CLI": Mode.IMP
-    "CLV": Mode.IMP
-    "DEX": Mode.IMP
-    "DEY": Mode.IMP
-    "INX": Mode.IMP
-    "INY": Mode.IMP
-    "JSR": Mode.ABS
-    "NOP": Mode.IMP
-    "PHA": Mode.IMP
-    "PHP": Mode.IMP
-    "PLA": Mode.IMP
-    "PLP": Mode.IMP
-    "RTI": Mode.IMP
-    "RTS": Mode.IMP
-    "SEC": Mode.IMP
-    "SED": Mode.IMP
-    "SEI": Mode.IMP
-    "TAX": Mode.IMP
-    "TAY": Mode.IMP
-    "TSX": Mode.IMP
-    "TXA": Mode.IMP
-    "TXS": Mode.IMP
+    "BCC": Mode.REL,
+    "BCS": Mode.REL,
+    "BEQ": Mode.REL,
+    "BMI": Mode.REL,
+    "BNE": Mode.REL,
+    "BPL": Mode.REL,
+    "BRK": Mode.IMP,
+    "BVC": Mode.REL,
+    "BVS": Mode.REL,
+    "CLC": Mode.IMP,
+    "CLD": Mode.IMP,
+    "CLI": Mode.IMP,
+    "CLV": Mode.IMP,
+    "DEX": Mode.IMP,
+    "DEY": Mode.IMP,
+    "INX": Mode.IMP,
+    "INY": Mode.IMP,
+    "JSR": Mode.ABS,
+    "NOP": Mode.IMP,
+    "PHA": Mode.IMP,
+    "PHP": Mode.IMP,
+    "PLA": Mode.IMP,
+    "PLP": Mode.IMP,
+    "RTI": Mode.IMP,
+    "RTS": Mode.IMP,
+    "SEC": Mode.IMP,
+    "SED": Mode.IMP,
+    "SEI": Mode.IMP,
+    "TAX": Mode.IMP,
+    "TAY": Mode.IMP,
+    "TSX": Mode.IMP,
+    "TXA": Mode.IMP,
+    "TXS": Mode.IMP,
     "TYA": Mode.IMP
 }
 
@@ -303,157 +315,289 @@ mnemonic_to_hex = {
     ("INC", Mode.AIX): 0xFE
 }
 
-'''
-Collect label dictionary, and strip labels, comments, and empty lines
-Invalid labels: Semicolon, opcodes, dollar sign, number sign, equals, parantheses
-Allow with or without colon
-LABEL AAA sets label equal to line number of AAA
-LABEL = $AA or #$AA or #AAAA sets label equal to value
-'''
-def first_pass(lines):
+def get_assignment_labels(filename):
+    labels = {}
 
-    labels = {} # "label": cumulative_length + 1
-    bytes_length = 0
+    with open(filename, "r") as file:
+        for line in file:
 
-    for num, line in enumerate(lines):
-
-        lines[num] = re.sub(comment_regex, "", line) # remove any comments from line
-        
-        line_strings = line.split()
-        if len(line_strings) == 0: # line was only comments or whitespace
-            continue
-
-        mnemonic = re.search(mnemonic_regex, line_strings[0])
-        if mnemonic and (len(line_strings[0]) == 3): # mnemonic is first in line
-            if len(line_strings) > 1:
-                mnemonic_mode = get_mode(mnemonic.group(), line_strings[1])
-                bytes_length += mode_length[mnemonic_mode]
+            line = re.sub(comment_pattern, "", line) # remove any comments from line
+                
+            if re.search(label_assignment_line, line):
+                label = re.search(label_pattern, line).group()
+                address = re.search(address_pattern, line).group()
+                if label in labels:
+                    print(line.split(), ": Multiple label assignments may cause undefined behavior.")
+                labels[label] = address
             else:
-                bytes_length += 1
-        else: # label is first in line
-            if len(line_strings) == 1:
-                if "=" in line_strings[0][1:-1]: # unspaced label assignment
-                    label_assignment = line_strings[0].split("=")
-                    assert(re.search(operand_regex, label_assignment[1]), \
-                           "Incorrect label assignment value: \
-                           Labels must only be assigned addresses or immediate values.\nLine " + num)
-                    labels[label_assignment[0]] = label_assignment[1]
-                else: # label on empty line
-                    labels[line_strings[0]] = bytes_length + 1
-            elif len(line_strings) == 2:
-                labels[line_strings[0]] = bytes_length + 1
-                assert(re.search(mnemonic_regex, line_strings[1]), \
-                       "Incorrect label placement: \
-                       Labels must only be followed by an instruction or whitespace.\nLine " + num)
-                bytes_length += 1
-            elif len(line_strings) == 3:
-                if line_strings[1] == "=":
-                    assert(re.search(operand_regex, label_assignment[2]), \
-                           "Incorrect label assignment value: \
-                           Labels must only be assigned addresses or immediate values.\nLine " + num)
-                    labels[line_strings[0]] = line_strings[2]
-                else:
-                    labels[line_strings[0]] = bytes_length + 1
-                    assert(re.search(mnemonic_regex, line_strings[1]), \
-                           "Incorrect label placement: \
-                           Labels must only be followed by an instruction or whitespace.\nLine " + num)
-                    mnemonic_mode = get_mode(line_strings[1], line_strings[2])
-                    bytes_length += mode_length[mnemonic_mode]
+                continue
 
     return labels
 
-'''
-Translate labels to their meanings, and commands into hex
-'''
-def second_pass(lines, labels): # assemble with labels
+def first_pass(filename):
+    labels = get_assignment_labels(filename)
+    bytes_length = 0
+
+    with open(filename, "r") as file:
+        for line in file:
+
+            line = re.sub(comment_pattern, "", line) # remove any comments from line
+            
+            if re.search(blank_line, line):
+                continue
+
+            elif re.search(mnemonic_line, line):
+                bytes_length += 1
+
+            elif re.search(mnemonic_operand_line, line):
+                mnemonic = re.search(mnemonic_pattern, line).group()
+                operand_string = re.search(operand_pattern, line).group()
+                mode = get_mode(mnemonic, operand_string)
+                bytes_length += mode_length[mode]
+
+            elif re.search(mnemonic_label_line, line):
+                operand_label = re.findall(label_pattern, line)[-1]
+
+                mnemonic = re.search(mnemonic_pattern, line).group()
+                if mnemonic in static_modes:
+                    mode = static_modes[mnemonic]
+                    bytes_length += mode_length[mode]
+                else:
+                    operand_string = labels[operand_label]
+                    mode = get_mode(mnemonic, operand_string)
+                    bytes_length += mode_length[mode]
+
+            elif re.search(label_line, line):
+                label = re.search(label_pattern, line).group()
+                labels[label] = bytes_length
+
+            elif re.search(label_mnemonic_line, line):
+                label = re.search(label_pattern, line).group()
+                labels[label] = bytes_length
+
+                bytes_length += 1
+
+            elif re.search(label_mnemonic_operand_line, line):
+                label = re.search(label_pattern, line).group()
+                labels[label] = bytes_length
+
+                mnemonic = re.search(mnemonic_pattern, line).group()
+                operand_string = re.search(operand_pattern, line).group()
+                mode = get_mode(mnemonic, operand_string)
+                bytes_length += mode_length[mode]
+
+            elif re.search(label_mnemonic_label_line, line):
+                line_labels = re.findall(label_pattern, line)
+                label = line_labels[0]
+                operand_label = line_labels[-1]
+                labels[label] = bytes_length
+
+                mnemonic = re.search(mnemonic_pattern, line).group()
+                if mnemonic in static_modes:
+                    mode = static_modes[mnemonic]
+                    bytes_length += mode_length[mode]
+                else:
+                    operand_string = labels[operand_label]
+                    mode = get_mode(mnemonic, operand_string)
+                    bytes_length += mode_length[mode]
+
+    return labels
+
+def second_pass(in_filename, out_filename, labels):
+    bytes_length = 0
 
     try:
-        hex_file = open(hex_filename,"w")
-    except OSError as err:
-        print(type(err).__name__, ": {0} \"{1}\"".format(err.strerror, sys.argv[0]))
+        os.remove(out_filename)
+    except OSError:
+        pass
 
-    for num, line in enumerate(lines):
-        line_strings = line.split()
+    with open(out_filename, "wb") as out_file:
+        with open(in_filename, "r") as in_file:
+            for line in in_file:
 
-        if len(line_strings) == 0: # line was only comments or whitespace
-            continue
+                line = re.sub(comment_pattern, "", line) # remove any comments from line
+                
+                if re.search(blank_line, line):
+                    continue
 
-        mnemonic = re.search(mnemonic_regex, line)
-        if mnemonic:
-            operand = re.search(operand_regex, line)
-            label = re.search(operand_regex, line)
-            if operand:
-                mnemonic_mode = get_mode(mnemonic.group(), operand.group())
-                mnemonic_hex = mnemonic_to_hex[(mnemonic.group(), mnemonic_mode)]
-            elif label:
-                if label.group()[0] == '$' or label.group()[0] == '#': # if the label is an assignment label
-                    mnemonic_mode = get_mode(mnemonic.group(), label.group())
-                    mnemonic_hex = mnemonic_to_hex[(mnemonic.group(), mnemonic_mode)]
-                else: # if the label is a subroutine label
-                    # TODO calculate offset from labels[label] - bytes_length
-                    # Add +1 to bytes_length if mnemonic
+                elif re.search(label_line, line):
+                    continue
 
-            else: # single mnemonic
-                mnemonic_mode = get_mode(mnemonic.group(), "")
-                mnemonic_hex = mnemonic_to_hex[(mnemonic.group(), mnemonic_mode)]
+                elif re.search(label_assignment_line, line):
+                    continue
 
-        hex_file.write()
+                elif re.search(mnemonic_line, line) or re.search(label_mnemonic_line, line):
+                    mnemonic = re.search(mnemonic_pattern, line).group()
+
+                    mode = get_mode(mnemonic, "")
+                    instr_length = mode_length[mode]
+                    bytes_length += instr_length
+                    
+                    mnemonic_byte = mnemonic_to_hex[(mnemonic, mode)]
+                    out_file.write(bytes([mnemonic_byte]))
+
+                elif re.search(mnemonic_operand_line, line) or re.search(label_mnemonic_operand_line, line):
+                    mnemonic = re.search(mnemonic_pattern, line).group()
+                    operand_string = re.search(operand_pattern, line).group()
+
+                    mode = get_mode(mnemonic, operand_string)
+                    operand = convert_operand(operand_string, mode)
+                    instr_length = mode_length[mode]
+                    bytes_length += instr_length
+                    
+                    mnemonic_byte = mnemonic_to_hex[(mnemonic, mode)]
+                    out_file.write(bytes([mnemonic_byte]))
+
+                    if instr_length == 3:
+                        high_byte = int(operand[:2], 16)
+                        low_byte = int(operand[2:], 16)
+                        out_file.write(bytes([low_byte]))
+                        out_file.write(bytes([high_byte]))
+
+                    else:
+                        operand_byte = int(operand, 16)
+                        out_file.write(bytes([operand_byte]))
+
+                elif re.search(mnemonic_label_line, line) or re.search(label_mnemonic_label_line, line):
+                    mnemonic = re.search(mnemonic_pattern, line).group()
+                    label = re.findall(label_pattern, line)[-1]
+                    operand_string = labels[label]
+
+                    if type(operand_string) == str:
+                        mode = get_mode(mnemonic, operand_string)
+                        operand = convert_operand(operand_string, mode)
+                        instr_length = mode_length[mode]
+                        bytes_length += instr_length
+                        
+                        mnemonic_byte = mnemonic_to_hex[(mnemonic, mode)]
+                        out_file.write(bytes([mnemonic_byte]))
+
+                        if instr_length == 3:
+                            high_byte = int(operand[:2], 16)
+                            low_byte = int(operand[2:], 16)
+                            out_file.write(bytes([low_byte]))
+                            out_file.write(bytes([high_byte]))
+
+                        else:
+                            operand_byte = int(operand, 16)
+                            out_file.write(bytes([operand_byte]))
+
+                    else:
+                        mode = Mode.REL
+                        instr_length = mode_length[mode]
+                        bytes_length += instr_length
+                        offset = label - bytes_length
+                        assert (offset >= -128 and offset <= 127), str(line.split()) + ": Label offset out of range [-128, 127]."
+                        
+                        try:
+                            mnemonic_byte = mnemonic_to_hex[(mnemonic, mode)]
+                            out_file.write(bytes([mnemonic_byte]))
+                        except KeyError:
+                            print(line.split(), ": Non-assignment labels as operands are only supported for Relative branching.")
+
+                        if offset < 0:
+                            offset = 256 + offset
+
+                        out_file.write(bytes([offset]))
 
 def get_mode(mnemonic, operand):
 
     if mnemonic in static_modes:
         return static_modes[mnemonic]
 
-    elif re.search(IMM_regex, operand):
+    elif re.search(IMM_pattern, operand):
         return Mode.IMM
 
-    elif re.search(ABS_regex, operand):
+    elif re.search(ABS_pattern, operand):
         return Mode.ABS
 
-    elif re.search(ZPG_regex, operand):
+    elif re.search(ZPG_pattern, operand):
         return Mode.ZPG
 
-    elif re.search(ZPX_regex, operand):
+    elif re.search(ZPX_pattern, operand):
         return Mode.ZPX
 
-    elif re.search(ZPY_regex, operand):
+    elif re.search(ZPY_pattern, operand):
         return Mode.ZPY
 
-    elif re.search(AIX_regex, operand):
+    elif re.search(AIX_pattern, operand):
         return Mode.AIX
 
-    elif re.search(AIY_regex, operand):
+    elif re.search(AIY_pattern, operand):
         return Mode.AIY
 
-    elif re.search(IIX_regex, operand):
+    elif re.search(IIX_pattern, operand):
         return Mode.IIX
 
-    elif re.search(IIY_regex, operand):
+    elif re.search(IIY_pattern, operand):
         return Mode.IIY
 
-    elif re.search(IND_regex, operand):
+    elif re.search(IND_pattern, operand):
         return Mode.IND
 
     else:
         return Mode.ACC
 
-# main
+def convert_operand(operand, mode):
 
-assert(sys.argv > 1, "Usage: assembler.py \"assembly file\" [\"output file\"]")
+    if mode == Mode.IMM:
+        hex_string = re.search(byte_pattern, operand).group()
+        return hex_string
 
+    elif mode == Mode.ABS:
+        hex_string = re.search(byte_pattern + byte_pattern, operand).group()
+        return hex_string
+
+    elif mode == Mode.ZPG:
+        hex_string = re.search(byte_pattern, operand).group()
+        return hex_string 
+
+    elif mode == Mode.ZPX:
+        hex_string = re.search(byte_pattern, operand).group()
+        return hex_string 
+
+    elif mode == Mode.ZPY:
+        hex_string = re.search(byte_pattern, operand).group()
+        return hex_string 
+
+    elif mode == Mode.AIX:
+        hex_string = re.search(byte_pattern + byte_pattern, operand).group()
+        return hex_string 
+
+    elif mode == Mode.AIY:
+        hex_string = re.search(byte_pattern + byte_pattern, operand).group()
+        return hex_string 
+
+    elif mode == Mode.REL:
+        hex_string = re.search(byte_pattern, operand).group()
+        return hex_string 
+
+    elif mode == Mode.IIX:
+        hex_string = re.search(byte_pattern, operand).group()
+        return hex_string 
+
+    elif mode == Mode.IIY:
+        hex_string = re.search(byte_pattern, operand).group()
+        return hex_string 
+
+    elif mode == Mode.IND:
+        hex_string = re.search(byte_pattern + byte_pattern, operand).group()
+        return hex_string 
+
+#assert len(sys.argv) > 1, "Usage: assembler.py \"assembly file\" [\"output file\"]"
+
+'''
 asm_filename = sys.argv[1]
 
 if len(sys.argv) > 2:
-    hex_filename = sys.argv[1]
+    hex_filename = sys.argv[2].split(".")[0]
 else:
     hex_filename = asm_filename.split(".")[0]
 
-try:
-    asm_file = open(asm_filename,"r")
-except OSError as err:
-    print(type(err).__name__, ": {0} \"{1}\"".format(err.strerror, sys.argv[0]))
+hex_filename += ".hex"
+'''
+asm_filename = "test.asm"
+hex_filename = "test.hex"
 
-file_lines = asm_file.readlines()
-
-label_dict = first_pass(file_lines)
-second_pass(file_lines, label_dict)
+label_dict = first_pass(asm_filename)
+second_pass(asm_filename, hex_filename, label_dict)
