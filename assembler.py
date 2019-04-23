@@ -65,8 +65,8 @@ TYA)\
 byte_pattern = r"[a-fA-F\d]{2}"
 
 comment_pattern = ";.*"
-label_pattern = r"((?:(?=[^\s])(?<![^\s]))((?!([;$#=()]))[^\s])+(?:(?<=[^\s])(?![^\s])))"
-operand_pattern = r"(#?\${0}|\${0}({0})?(,[xXyY])?|\(\${0}((({0}|,[xX])\))|\),[yY]))".format(byte_pattern)
+label_pattern = r"((?:(?=[^\s])(?<![^\s]))((?!([;$#=()\s]))[^\s])+(?:(?<=[^\s])(?![^\s])))"
+operand_pattern = r"(\${0}({0})?(,[xXyY])?)|(#?\${0})|(\(\${0}((({0}|,[xX])\))|\),[yY]))".format(byte_pattern)
 address_pattern = r"(#?\${0}|\${0}{0})".format(byte_pattern)
 
 blank_line = r"^\s*$"
@@ -349,6 +349,15 @@ def first_pass(filename):
             elif re.search(mnemonic_line, line):
                 bytes_length += 1
 
+            elif re.search(label_mnemonic_operand_line, line):
+                label = re.search(label_pattern, line).group()
+                labels[label] = bytes_length
+
+                mnemonic = re.search(mnemonic_pattern, line).group()
+                operand_string = re.search(operand_pattern, line).group()
+                mode = get_mode(mnemonic, operand_string)
+                bytes_length += mode_length[mode]
+
             elif re.search(mnemonic_operand_line, line):
                 mnemonic = re.search(mnemonic_pattern, line).group()
                 operand_string = re.search(operand_pattern, line).group()
@@ -376,15 +385,6 @@ def first_pass(filename):
                 labels[label] = bytes_length
 
                 bytes_length += 1
-
-            elif re.search(label_mnemonic_operand_line, line):
-                label = re.search(label_pattern, line).group()
-                labels[label] = bytes_length
-
-                mnemonic = re.search(mnemonic_pattern, line).group()
-                operand_string = re.search(operand_pattern, line).group()
-                mode = get_mode(mnemonic, operand_string)
-                bytes_length += mode_length[mode]
 
             elif re.search(label_mnemonic_label_line, line):
                 line_labels = re.findall(label_pattern, line)
@@ -418,12 +418,6 @@ def second_pass(in_filename, out_filename, labels):
                 line = re.sub(comment_pattern, "", line) # remove any comments from line
                 
                 if re.search(blank_line, line):
-                    continue
-
-                elif re.search(label_line, line):
-                    continue
-
-                elif re.search(label_assignment_line, line):
                     continue
 
                 elif re.search(mnemonic_line, line) or re.search(label_mnemonic_line, line):
@@ -461,6 +455,8 @@ def second_pass(in_filename, out_filename, labels):
                 elif re.search(mnemonic_label_line, line) or re.search(label_mnemonic_label_line, line):
                     mnemonic = re.search(mnemonic_pattern, line).group()
                     label = re.findall(label_pattern, line)[-1]
+                    if type(label) == tuple:
+                        label = label[0]
                     operand_string = labels[label]
 
                     if type(operand_string) == str:
@@ -486,7 +482,7 @@ def second_pass(in_filename, out_filename, labels):
                         mode = Mode.REL
                         instr_length = mode_length[mode]
                         bytes_length += instr_length
-                        offset = label - bytes_length
+                        offset = operand_string - bytes_length
                         assert (offset >= -128 and offset <= 127), str(line.split()) + ": Label offset out of range [-128, 127]."
                         
                         try:
@@ -499,6 +495,12 @@ def second_pass(in_filename, out_filename, labels):
                             offset = 256 + offset
 
                         out_file.write(bytes([offset]))
+
+                elif re.search(label_line, line):
+                    continue
+
+                elif re.search(label_assignment_line, line):
+                    continue
 
 def get_mode(mnemonic, operand):
 
